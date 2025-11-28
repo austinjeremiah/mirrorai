@@ -7,8 +7,6 @@ export class DKGQuerier {
 
   constructor() {
     try {
-      // For hackathon: Use local DKG Edge Node
-      // Install: https://docs.origintrail.io/dkg-v6-beta/dkg-edge-node-setup
       const useLocalNode = process.env.USE_LOCAL_DKG === 'true';
       
       if (useLocalNode) {
@@ -23,17 +21,15 @@ export class DKGQuerier {
           },
         });
       } else {
-        console.log('🌐 Using OriginTrail testnet node...');
+        console.log('🌐 Using OriginTrail DKG Gateway...');
         this.dkg = new DKG({
-          environment: 'testnet',
-          endpoint: 'https://v6-node-testnet.origin-trail.network',
+          endpoint: 'https://dkg-testnet.origintrail.io',
           port: 8900,
           blockchain: {
-            name: 'otp:20430', // Neuroweb testnet
+            name: 'otp:20430',
             publicKey: process.env.PUBLISH_WALLET_PUBLIC_KEY || '0xa2B4C8bc641d95eED7dCfFfA49bf289d96aaB32a',
             privateKey: process.env.PUBLISH_WALLET_PRIVATE_KEY || '0xab812b7a70a6caea64c65c472f93c0bcc716527ff556ab0f59cfb38597330de2',
           },
-          maxNumberOfRetries: 5,
         });
       }
       this.isInitialized = true;
@@ -81,51 +77,53 @@ export class DKGQuerier {
     }
 
     try {
+      // Simplified asset structure for v8
       const assetData = {
         public: {
           '@context': 'https://schema.org',
           '@type': 'FactCheck',
-          '@id': `urn:mirrorai:verification:${hash.substring(0, 16)}`,
-          name: 'MirrorAI Truth Verification',
-          description: `Verified claim: ${postText.substring(0, 100)}...`,
-          verificationHash: hash,
-          reviewRating: {
-            '@type': 'Rating',
-            ratingValue: truthScore,
-            bestRating: 100,
-            worstRating: 0,
-          },
-          author: {
-            '@type': 'Organization',
-            name: 'MirrorAI',
-          },
-          datePublished: new Date().toISOString(),
+          name: 'MirrorAI Verification',
+          description: postText.substring(0, 200),
+          hash: hash,
+          score: truthScore,
+          timestamp: new Date().toISOString(),
         },
       };
 
       console.log('📤 Publishing verification to DKG...');
+      console.log('📝 Asset data:', JSON.stringify(assetData, null, 2));
       
-      // DKG v8 asset.create requires specific format
       const result = await this.dkg.asset.create(assetData, {
-        epochsNum: 2, // Store for 2 epochs (cost-effective for demo)
-        immutable: false,
+        epochsNum: 2,
       });
+
+      console.log('📦 DKG Response:', result);
 
       if (result && result.UAL) {
         console.log(`✅ Published to DKG! UAL: ${result.UAL}`);
         return result.UAL;
+      } else if (result) {
+        console.log('⚠️ Result received:', JSON.stringify(result));
+        return null;
       } else {
-        console.log('⚠️ Publish completed but no UAL returned');
+        console.log('⚠️ No result from DKG');
         return null;
       }
     } catch (error: any) {
       console.error('❌ DKG publish error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data,
+      });
       
-      // Provide helpful error messages
       if (error.message?.includes('ENOTFOUND')) {
         console.log('💡 Network issue: Check your internet connection');
-      } else if (error.message?.includes('insufficient')) {
-        console.log('💡 Insufficient tokens: Get TRAC/NEURO from faucet');
+      } else if (error.message?.includes('insufficient') || error.message?.includes('balance')) {
+        console.log('💡 Insufficient tokens: Check TRAC/NEURO balance');
+        console.log('💡 Wallet:', process.env.PUBLISH_WALLET_PUBLIC_KEY);
+      } else if (error.response) {
+        console.log('💡 API Error:', error.response.status, error.response.data);
       } else {
         console.log('💡 Publishing skipped - system works without DKG publication');
       }
